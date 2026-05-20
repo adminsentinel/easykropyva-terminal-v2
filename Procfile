@@ -1,1 +1,1 @@
-web: python scratch/Sentinel_Agents/web/app.py
+web: python app.py
