@@ -689,12 +689,12 @@
                 let weight = 3;
                 let statusMsg = 'GOOD';
 
-                // Лояльніша логіка для mesh network
-                if (link.has_los) {
-                    color = '#2196F3'; // Blue - хороший зв'язок
+                // Лояльніша логіка для mesh network: пріоритет terrain LOS
+                if (link.terrain_los) {
+                    color = '#2196F3'; // Blue - хороший зв'язок по терену
                     statusMsg = 'GOOD';
-                } else if (link.terrain_los) {
-                    color = '#ffd700'; // Yellow - перспектива зв'язку
+                } else if (link.fresnel_los) {
+                    color = '#ffd700'; // Yellow - Френель в порядку, але терен блокує
                     statusMsg = 'MARGINAL';
                 } else {
                     color = '#ff0033'; // Red - без перспектив
