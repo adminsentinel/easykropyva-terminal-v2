@@ -10,8 +10,8 @@ from flask import Flask, render_template, jsonify, request, Response
 from flask_cors import CORS
 import requests
 
-application = Flask(__name__)  # Render requires this variable name
-CORS(application)
+app = Flask(__name__)
+CORS(app)
 
 # Глобальні дані (сховище в пам'яті)
 nodes = {}
@@ -169,7 +169,7 @@ def generate_synthetic_elevation(lat1, lng1, lat2, lng2, samples=30):
 
 # --- ROUTES ---
 
-@application.route('/')
+@app.route('/')
 def index():
     # Для Render: HTML в корені репозиторію поруч з app.py
     easyk_path = Path(__file__).parent / "easykropyva_terminal_v1_5.html"
@@ -177,7 +177,7 @@ def index():
         return Response(easyk_path.read_text(encoding="utf-8"), mimetype="text/html")
     return render_template('index.html')
 
-@application.route('/api/los', methods=['POST'])
+@app.route('/api/los', methods=['POST'])
 def api_los():
     payload = request.get_json(silent=True) or {}
     lat1 = payload.get('lat1')
@@ -217,7 +217,7 @@ def api_los():
 
     return jsonify(result)
 
-@application.route('/api/nodes', methods=['GET', 'POST', 'DELETE'])
+@app.route('/api/nodes', methods=['GET', 'POST', 'DELETE'])
 def api_nodes():
     global nodes
     if request.method == 'GET':
@@ -233,7 +233,7 @@ def api_nodes():
         if node_id in nodes: del nodes[node_id]
         return jsonify({'ok': True})
 
-@application.route('/api/targets', methods=['GET', 'POST', 'DELETE'])
+@app.route('/api/targets', methods=['GET', 'POST', 'DELETE'])
 def api_targets():
     global targets
     if request.method == 'GET':
@@ -249,7 +249,7 @@ def api_targets():
         if target_id in targets: del targets[target_id]
         return jsonify({'ok': True})
 
-@application.route('/api/mesh_topology')
+@app.route('/api/mesh_topology')
 def api_mesh_topology():
     mesh_nodes = [n for n in nodes.values() if n.get('type') in ['sensor', 'relay']]
     links = []
@@ -324,7 +324,7 @@ def api_mesh_topology():
 
     return jsonify({'links': links, 'masters': masters})
 
-@application.route('/api/home', methods=['GET', 'POST', 'DELETE'])
+@app.route('/api/home', methods=['GET', 'POST', 'DELETE'])
 def api_home_point():
     global home_point
     if request.method == 'GET':
@@ -335,14 +335,14 @@ def api_home_point():
     home_point = request.get_json()
     return jsonify({'ok': True})
 
-@application.route('/api/clear', methods=['POST'])
+@app.route('/api/clear', methods=['POST'])
 def api_clear():
     global nodes, targets
     nodes.clear()
     targets.clear()
     return jsonify({'ok': True})
 
-@application.route('/api/test_terrain', methods=['GET'])
+@app.route('/api/test_terrain', methods=['GET'])
 def api_test_terrain():
     """Тестовий endpoint для перевірки оновлення бекенду"""
     return jsonify({
@@ -355,4 +355,4 @@ def api_test_terrain():
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
-    application.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port)
