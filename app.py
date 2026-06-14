@@ -1,3 +1,4 @@
+# EasyKropyva Terminal Backend v1.6.1 - Updated mesh logic
 import math
 import time
 import os
