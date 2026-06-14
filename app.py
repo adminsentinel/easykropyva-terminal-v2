@@ -208,9 +208,12 @@ def api_los():
 
     dist_m = haversine_distance(lat1, lng1, lat2, lng2)
     result = compute_los(elevations, base_h_a, base_h_b, freq_mhz, dist_m)
-    # Debug: ensure terrain_profile is included
-    print(f"DEBUG: Returning result with terrain_profile: {bool(result.get('terrain_profile'))}")
     return jsonify(result)
+
+@app.route('/api/los_v2', methods=['POST'])
+def api_los_v2():
+    """Новий endpoint для тестування оновлення бекенду"""
+    return api_los()
 
 @app.route('/api/nodes', methods=['GET', 'POST', 'DELETE'])
 def api_nodes():
