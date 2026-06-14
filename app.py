@@ -208,12 +208,14 @@ def api_los():
 
     dist_m = haversine_distance(lat1, lng1, lat2, lng2)
     result = compute_los(elevations, base_h_a, base_h_b, freq_mhz, dist_m)
-    return jsonify(result)
 
-@app.route('/api/los_v2', methods=['POST'])
-def api_los_v2():
-    """Новий endpoint для тестування оновлення бекенду"""
-    return api_los()
+    # Примусово додаємо дані профілю якщо їх немає
+    if not result.get('terrain_profile'):
+        result['terrain_profile'] = [round(e, 1) for e in elevations]
+        result['los_beam'] = [round(elevations[0] + base_h_a + (elevations[-1] + base_h_b - elevations[0] - base_h_a) * i / len(elevations), 1) for i in range(len(elevations))]
+        result['fresnel_60'] = [round(h - 5, 1) for h in result['los_beam']]
+
+    return jsonify(result)
 
 @app.route('/api/nodes', methods=['GET', 'POST', 'DELETE'])
 def api_nodes():
