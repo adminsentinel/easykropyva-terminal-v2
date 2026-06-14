@@ -138,13 +138,13 @@ def compute_los(elevations, base_height_a=0.5, base_height_b=0.5, freq_mhz=433.0
     is_beyond_horizon = (distance_m / 1000.0) > radio_horizon_km
 
     return {
-        'пряма_видимість': los_clear and fresnel_clear and not is_beyond_horizon,
+        'пряма_видимість': los_clear and not is_beyond_horizon,  # Лояльніший критерій для mesh network
         'terrain_los': los_clear,
         'fresnel_los': fresnel_clear,
         'beyond_horizon': is_beyond_horizon,
         'radio_horizon_km': round(radio_horizon_km, 2),
-        'статус': 'ВИДИМІСТЬ Є' if (los_clear and fresnel_clear and not is_beyond_horizon) else 
-                  ('ЗА ГОРИЗОНТОМ' if is_beyond_horizon else 
+        'статус': 'ВИДИМІСТЬ Є' if (los_clear and fresnel_clear and not is_beyond_horizon) else
+                  ('ЗА ГОРИЗОНТОМ' if is_beyond_horizon else
                   (f"БЛОКОВАНО РЕЛЬЄФОМ (-{round(max_obstruction, 1)}м)" if not los_clear else "ЧАСТКОВЕ БЛОКУВАННЯ (ФРЕНЕЛЬ)")),
         'висота_початку_рельєф': round(elevs[0], 1),
         'висота_кінця_рельєф': round(elevs[-1], 1),

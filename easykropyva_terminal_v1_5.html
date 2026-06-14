@@ -683,22 +683,22 @@
                 const p1 = n1.getLatLng();
                 const p2 = n2.getLatLng();
                 
-                // Кольори: Синій (дуже гарні), Жовтий (не ідеальні), Червоний (погані)
-                // Всі лінії - штрихпунктир
+                // Кольори: Синій (хороший зв'язок), Жовтий (обмежений), Червоний (поганий)
                 let color = '#2196F3'; // Blue
-                let dash = '8, 4'; // dash-dot
+                let dash = '8, 4';
                 let weight = 3;
-                let statusMsg = 'EXCELLENT';
+                let statusMsg = 'GOOD';
 
-                if (!link.terrain_los) {
-                    color = '#ff0033'; // Red
-                    dash = '8, 4';
-                    weight = 4;
-                    statusMsg = 'TERRAIN BLOCKED';
-                } else if (!link.fresnel_los || link.beyond_horizon) {
-                    color = '#ffd700'; // Yellow
-                    dash = '8, 4';
-                    statusMsg = link.beyond_horizon ? 'BEYOND HORIZON' : 'FRESNEL BLOCKED';
+                // Лояльніша логіка для mesh network
+                if (link.has_los) {
+                    color = '#2196F3'; // Blue - хороший зв'язок
+                    statusMsg = 'GOOD';
+                } else if (link.terrain_los) {
+                    color = '#ffd700'; // Yellow - перспектива зв'язку
+                    statusMsg = 'MARGINAL';
+                } else {
+                    color = '#ff0033'; // Red - без перспектив
+                    statusMsg = 'BLOCKED';
                 }
                 
                 const poly = L.polyline([p1, p2], {
