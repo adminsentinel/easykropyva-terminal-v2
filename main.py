@@ -342,6 +342,17 @@ def api_clear():
     targets.clear()
     return jsonify({'ok': True})
 
+@application.route('/api/test_terrain', methods=['GET'])
+def api_test_terrain():
+    """Тестовий endpoint для перевірки оновлення бекенду"""
+    return jsonify({
+        'status': 'backend_updated',
+        'version': 'v1.6.3',
+        'terrain_profile': [200, 205, 203, 210, 208, 215, 212, 218],
+        'los_beam': [200.5, 205.3, 203.2, 210.4, 208.1, 215.2, 212.3, 218.1],
+        'fresnel_60': [195.5, 200.3, 198.2, 205.4, 203.1, 210.2, 207.3, 213.1]
+    })
+
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     application.run(host='0.0.0.0', port=port)
