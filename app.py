@@ -1,4 +1,4 @@
-# EasyKropyva Terminal Backend v1.6.1 - Updated mesh logic
+# EasyKropyva Terminal Backend v1.6.2 - Simplified elevation profile
 import math
 import time
 import os
