@@ -247,6 +247,7 @@ def api_mesh_topology():
     links = []
     pairs = []
     
+    # Збираємо всі можливі пари
     for i in range(len(mesh_nodes)):
         for j in range(i + 1, len(mesh_nodes)):
             n1, n2 = mesh_nodes[i], mesh_nodes[j]
@@ -254,23 +255,50 @@ def api_mesh_topology():
             if dist < 30000: # 30km max link
                 pairs.append({'n1': n1, 'n2': n2, 'dist': dist})
     
+    # Розраховуємо LOS для всіх пар
     for p in pairs:
-        # Для меш ми використовуємо спрощений аналіз (або синтетику)
-        # щоб не перевантажувати API занадто багатьма запитами
-        # В ідеалі тут треба bulk lookup
         samples = 15
         elevs = generate_synthetic_elevation(p['n1']['lat'], p['n1']['lng'], p['n2']['lat'], p['n2']['lng'], samples)
         freq = 900.0 if p['n1'].get('model') == 'relay' or p['n2'].get('model') == 'relay' else 433.0
         res = compute_los(elevs, p['n1'].get('altitude_m', 0.5), p['n2'].get('altitude_m', 0.5), freq, p['dist'])
         
+        # Зберігаємо розширену інформацію для кожної пари
+        p['has_los'] = res['пряма_видимість']
+        p['terrain_los'] = res['terrain_los']
+        p['fresnel_los'] = res['fresnel_los']
+        p['beyond_horizon'] = res['beyond_horizon']
+    
+    # Алгоритм "Best-Neighbors": для кожного вузла обираємо 2-3 найкращі зв'язки
+    selected_links = set()
+    max_neighbors = 3
+    
+    for node in mesh_nodes:
+        # Знаходимо всі можливі сусіди для цього вузла
+        neighbors = []
+        for p in pairs:
+            if p['n1']['id'] == node['id']:
+                neighbors.append({'other': p['n2'], 'dist': p['dist'], 'has_los': p['has_los'], 'pair': p})
+            elif p['n2']['id'] == node['id']:
+                neighbors.append({'other': p['n1'], 'dist': p['dist'], 'has_los': p['has_los'], 'pair': p})
+        
+        # Сортуємо сусідів: спочатку за LOS (True краще), потім за відстаню (ближче краще)
+        neighbors.sort(key=lambda x: (not x['has_los'], x['dist']))
+        
+        # Обираємо до max_neighbors найкращих
+        for i, n in enumerate(neighbors[:max_neighbors]):
+            link_key = frozenset([node['id'], n['other']['id']])
+            selected_links.add((link_key, n['pair']))
+    
+    # Створюємо фінальний список лінків
+    for link_key, p in selected_links:
         links.append({
             'source': p['n1']['id'],
             'target': p['n2']['id'],
             'distance_m': round(p['dist'], 1),
-            'has_los': res['пряма_видимість'],
-            'terrain_los': res['terrain_los'],
-            'fresnel_los': res['fresnel_los'],
-            'beyond_horizon': res['beyond_horizon']
+            'has_los': p['has_los'],
+            'terrain_los': p['terrain_los'],
+            'fresnel_los': p['fresnel_los'],
+            'beyond_horizon': p['beyond_horizon']
         })
     
     # Визначення майстер-нод (спрощено: хто має більше зв'язків)
@@ -283,17 +311,27 @@ def api_mesh_topology():
                 conn_counts[l['target']] += 1
         
         for nid, count in conn_counts.items():
-            if count >= (len(mesh_nodes)-1) * 0.7:
+            if count >= 2:  # Якщо вузол має мінімум 2 LOS-з'язки
                 masters.append(nid)
 
     return jsonify({'links': links, 'masters': masters})
 
-@app.route('/api/home', methods=['GET', 'POST'])
+@app.route('/api/home', methods=['GET', 'POST', 'DELETE'])
 def api_home_point():
     global home_point
     if request.method == 'GET':
         return jsonify(home_point or {})
+    elif request.method == 'DELETE':
+        home_point = None
+        return jsonify({'ok': True})
     home_point = request.get_json()
+    return jsonify({'ok': True})
+
+@app.route('/api/clear', methods=['POST'])
+def api_clear():
+    global nodes, targets
+    nodes.clear()
+    targets.clear()
     return jsonify({'ok': True})
 
 if __name__ == '__main__':
