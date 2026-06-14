@@ -1297,9 +1297,9 @@
                     const d = (i / samples) * distM;
                     return d < 1000 ? `${d.toFixed(0)}м` : `${(d/1000).toFixed(1)}км`;
                 });
-                renderElevationChart(labels, losData.terrain_profile, losData.los_beam, losData.fresnel_60, losData['пряма_видимість']);
+                renderElevationChart(labels, losData.terrain_profile, losData.los_beam, null, losData['пряма_видимість']);
             } else {
-                renderElevationChart(['0м', '100м'], [0, 0], [1, 1], [0.5, 0.5], false);
+                renderElevationChart(['0м', '100м'], [0, 0], [1, 1], null, false);
             }
 
             const maxAlt = losData.terrain_profile ? Math.max(...losData.terrain_profile) : '--';
@@ -1351,7 +1351,7 @@
                     labels,
                     losData.terrain_profile,
                     losData.los_beam,
-                    losData.fresnel_60,
+                    null,
                     losData.terrain_los,
                     losData.beyond_horizon
                 );
@@ -1361,7 +1361,7 @@
         } catch (err) {
             console.error('LOS API failed:', err);
             document.getElementById('elevation-stats').innerHTML = `<span style="color:#ff3366">Помилка LOS: ${err.message}</span>`;
-            renderElevationChart(['A', 'B'], [0, 0], [0, 0], false);
+            renderElevationChart(['A', 'B'], [0, 0], [0, 0], null, false);
         }
     }
 
@@ -1379,33 +1379,29 @@
                 labels: labels,
                 datasets: [
                     {
-                        label: 'LOS Beam',
+                        label: 'Лінія горизонту',
                         data: losData,
                         borderColor: beamColor,
-                        borderWidth: 3,
-                        borderDash: [8, 4], // Штрихпунктир для зв'язку
+                        borderWidth: 2,
+                        borderDash: [5, 5], // Штрихпунктир для лінії горизонту
                         pointRadius: 0,
                         fill: false,
                         zIndex: 10
                     },
                     {
-                        label: 'Fresnel 60%',
-                        data: fresnelData,
-                        borderColor: 'rgba(255, 255, 255, 0.3)',
-                        borderWidth: 1, // Лінія (не штрихпунктир) для горизонту
-                        pointRadius: 0,
-                        fill: false
-                    },
-                    {
-                        label: 'Terrain',
+                        label: 'Висота',
                         data: terrainData,
                         borderColor: '#8a9ba8',
-                        backgroundColor: 'rgba(138, 155, 168, 0.3)', // Світліший фон без чорного
+                        backgroundColor: 'rgba(138, 155, 168, 0.4)',
                         fill: true,
-                        tension: 0.1,
-                        pointRadius: 1,
-                        pointHoverRadius: 6,
-                        pointHoverBackgroundColor: '#fff'
+                        tension: 0.2,
+                        pointRadius: 3,
+                        pointHoverRadius: 8,
+                        pointBackgroundColor: '#00e676',
+                        pointBorderColor: '#fff',
+                        pointBorderWidth: 2,
+                        pointHoverBackgroundColor: '#fff',
+                        pointHoverBorderColor: '#00e676'
                     }
                 ]
             },
@@ -1414,37 +1410,105 @@
                 maintainAspectRatio: false,
                 interaction: {
                     mode: 'index',
-                    intersect: false
+                    intersect: true
+                },
+                onClick: (event, elements) => {
+                    if (elements && elements.length > 0) {
+                        const index = elements[0].index;
+                        if (elevationPoints[index]) {
+                            const point = elevationPoints[index];
+                            const elev = terrainData[index];
+                            const dist = labels[index];
+                            
+                            if (!hoverMarker) {
+                                hoverMarker = L.circleMarker(point, {
+                                    radius: 8, color: '#fff', weight: 3, fillColor: '#00e676', fillOpacity: 1
+                                }).addTo(map);
+                                hoverMarker.bindPopup(`
+                                    <div style="color:#333; font-size:12px;">
+                                        <b>Точка:</b> ${dist}<br>
+                                        <b>Висота:</b> ${elev} м<br>
+                                        <b>Координати:</b> ${point[0].toFixed(4)}, ${point[1].toFixed(4)}
+                                    </div>
+                                `).openPopup();
+                            } else {
+                                hoverMarker.setLatLng(point);
+                                hoverMarker.setPopupContent(`
+                                    <div style="color:#333; font-size:12px;">
+                                        <b>Точка:</b> ${dist}<br>
+                                        <b>Висота:</b> ${elev} м<br>
+                                        <b>Координати:</b> ${point[0].toFixed(4)}, ${point[1].toFixed(4)}
+                                    </div>
+                                `).openPopup();
+                            }
+                            
+                            map.setView(point, map.getZoom());
+                        }
+                    }
                 },
                 onHover: (event, elements) => {
                     if (elements && elements.length > 0) {
                         const index = elements[0].index;
                         if (elevationPoints[index]) {
+                            document.body.style.cursor = 'pointer';
                             if (!hoverMarker) {
                                 hoverMarker = L.circleMarker(elevationPoints[index], {
-                                    radius: 5, color: '#fff', weight: 2, fillColor: '#00e676', fillOpacity: 1
+                                    radius: 5, color: '#fff', weight: 2, fillColor: '#00e676', fillOpacity: 0.8
                                 }).addTo(map);
                             } else {
                                 hoverMarker.setLatLng(elevationPoints[index]);
                             }
                         }
                     } else {
-                        if (hoverMarker) {
+                        document.body.style.cursor = 'default';
+                        if (hoverMarker && !hoverMarker.getPopup()) {
                             map.removeLayer(hoverMarker);
                             hoverMarker = null;
                         }
                     }
                 },
                 onLeave: (event, elements) => {
-                    if (hoverMarker) {
-                        map.removeLayer(hoverMarker);
-                        hoverMarker = null;
+                    document.body.style.cursor = 'default';
+                },
+                plugins: { 
+                    legend: { 
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            color: '#8a9ba8',
+                            font: { size: 10 },
+                            boxWidth: 12
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(0,0,0,0.8)',
+                        titleColor: '#fff',
+                        bodyColor: '#fff',
+                        borderColor: '#00e676',
+                        borderWidth: 1,
+                        callbacks: {
+                            label: function(context) {
+                                const label = context.dataset.label || '';
+                                const value = context.parsed.y;
+                                const index = context.dataIndex;
+                                const distance = labels[index];
+                                return `${label}: ${value} м (на ${distance})`;
+                            }
+                        }
                     }
                 },
-                plugins: { legend: { display: false } },
                 scales: {
                     x: { ticks: { color: '#8a9ba8', font: { size: 10 } }, grid: { display: false } },
-                    y: { ticks: { color: '#8a9ba8', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } }
+                    y: { 
+                        ticks: { color: '#8a9ba8', font: { size: 10 } }, 
+                        grid: { color: 'rgba(255,255,255,0.1)' },
+                        title: {
+                            display: true,
+                            text: 'Висота (м)',
+                            color: '#8a9ba8',
+                            font: { size: 10 }
+                        }
+                    }
                 }
             }
         });
