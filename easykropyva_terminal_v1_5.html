@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>EasyKropyva Tactical Terminal v1.5</title>
+  <title>EasyKropyva Tactical Terminal v1.6.1</title>
 
   <link
     rel="stylesheet"
@@ -387,8 +387,8 @@
 </head>
 <body>
   <aside class="sidebar">
-    <div class="title">EASYKROPYVA · TERMINAL v1.5</div>
-    <div style="font-size: 10px; color: var(--text-dim); text-align: center; margin-bottom: 10px;">Build: 2026-05-16 04:56</div>
+    <div class="title">EASYKROPYVA · TERMINAL v1.6.0</div>
+    <div style="font-size: 10px; color: var(--text-dim); text-align: center; margin-bottom: 10px;">Build: 2026-06-17</div>
 
     <!-- Секція: Розгортання -->
     <div class="section-title">РОЗГОРТАННЯ</div>
@@ -656,15 +656,21 @@
     async function updateMesh() {
         if (!meshActive) return;
         meshGroup.clearLayers();
-        
+
         try {
             const btn = document.getElementById('mesh-toggle-btn');
             btn.innerText = 'MESH: CALC...';
-            
+
             const res = await fetch('/api/mesh_topology');
             const topology = await res.json();
-            
+
             const masterIds = new Set(topology.masters || []);
+
+            // Перевірка на наявність nodeMarkers
+            if (!nodeMarkers || Object.keys(nodeMarkers).length === 0) {
+                btn.innerText = 'MESH: NO NODES';
+                return;
+            }
 
             // Відновлюємо іконки до стандартних перед застосуванням майстер-статусу
             Object.keys(nodeMarkers).forEach(id => {
@@ -676,13 +682,16 @@
 
             // Малюємо лінки
             topology.links.forEach(link => {
-                const n1 = nodeMarkers[link.source];
-                const n2 = nodeMarkers[link.target];
-                if (!n1 || !n2) return;
-                
+                const n1 = nodeMarkers[link.source] || nodeMarkers[String(link.source)];
+                const n2 = nodeMarkers[link.target] || nodeMarkers[String(link.target)];
+                if (!n1 || !n2) {
+                    console.warn('Markers not found for link:', link.source, link.target, Object.keys(nodeMarkers));
+                    return;
+                }
+
                 const p1 = n1.getLatLng();
                 const p2 = n2.getLatLng();
-                
+
                 // Кольори: Синій (хороший зв'язок), Жовтий (обмежений), Червоний (поганий)
                 let color = '#2196F3'; // Blue
                 let dash = '8, 4';
@@ -700,7 +709,7 @@
                     color = '#ff0033'; // Red - без перспектив
                     statusMsg = 'BLOCKED';
                 }
-                
+
                 const poly = L.polyline([p1, p2], {
                     color: color,
                     weight: weight,
@@ -708,18 +717,18 @@
                     dashArray: dash,
                     interactive: true
                 }).addTo(meshGroup);
-                
+
                 poly.on('click', (e) => {
                     L.DomEvent.stopPropagation(e);
                     showElevation(p1, p2);
                 });
-                
+
                 poly.bindTooltip(`Link: ${link.distance_m}m | LOS: ${statusMsg}`, { sticky: true });
             });
-            
+
             // Підсвічуємо Master ноди
             topology.masters.forEach(masterId => {
-                const m = nodeMarkers[masterId];
+                const m = nodeMarkers[masterId] || nodeMarkers[String(masterId)];
                 if (m) {
                     m.setIcon(L.divIcon({
                         className: 'radar-icon',
@@ -728,12 +737,15 @@
                     }));
                 }
             });
-            
+
             btn.innerText = 'MESH: ON';
             btn.style.borderColor = 'var(--ok)';
         } catch (e) {
             console.error('Mesh topology error:', e);
-            document.getElementById('mesh-toggle-btn').innerText = 'MESH: ERR';
+            const btn = document.getElementById('mesh-toggle-btn');
+            btn.innerText = 'MESH: ERR';
+            btn.style.borderColor = 'var(--danger)';
+            alert('Mesh Error: ' + e.message);
         }
     }
 
