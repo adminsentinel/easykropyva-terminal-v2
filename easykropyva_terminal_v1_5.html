@@ -662,7 +662,29 @@
             btn.innerText = 'MESH: CALC...';
 
             const res = await fetch('/api/mesh_topology');
-            const topology = await res.json();
+
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+            }
+
+            // Перевірка на валідний JSON перед парсингом
+            const contentType = res.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                const text = await res.text();
+                console.error('Invalid content type:', contentType);
+                console.error('Response text:', text.substring(0, 200));
+                throw new Error('Server returned non-JSON response');
+            }
+
+            let topology;
+            try {
+                topology = await res.json();
+            } catch (jsonError) {
+                const text = await res.text();
+                console.error('JSON parse error:', jsonError);
+                console.error('Response text:', text.substring(0, 200));
+                throw new Error('Invalid JSON response from server');
+            }
 
             const masterIds = new Set(topology.masters || []);
 
@@ -745,7 +767,18 @@
             const btn = document.getElementById('mesh-toggle-btn');
             btn.innerText = 'MESH: ERR';
             btn.style.borderColor = 'var(--danger)';
-            alert('Mesh Error: ' + e.message);
+
+            // Детальне повідомлення про помилку
+            let errorMsg = 'Mesh Error: ';
+            if (e.message.includes('non-JSON')) {
+                errorMsg += 'Server returned invalid response. Try refreshing the page.';
+            } else if (e.message.includes('HTTP')) {
+                errorMsg += `Server error (${e.message})`;
+            } else {
+                errorMsg += e.message;
+            }
+
+            alert(errorMsg);
         }
     }
 
