@@ -639,6 +639,7 @@
     L.control.zoom({ position: 'topright' }).addTo(map);
 
     let meshGroup = L.layerGroup().addTo(map);
+    let auraGroup = L.layerGroup().addTo(map);
     let meshActive = false;
 
     function toggleMesh() {
@@ -648,9 +649,60 @@
         btn.style.borderColor = meshActive ? 'var(--ok)' : 'var(--line)';
         if (!meshActive) {
             meshGroup.clearLayers();
+            auraGroup.clearLayers();
         } else {
             updateMesh();
+            renderSensorAuras();
         }
+    }
+
+    // ---- Sensor Aura (покриття сенсора) ----
+    function getSensorRadius(model) {
+        // Діаметр: model 1 = 140m, model 3 = 200m, relay = 250m
+        // Повертаємо радіус в метрах
+        switch(model) {
+            case '1': return 70;
+            case '3': return 100;
+            case 'relay': return 125;
+            default: return 85;
+        }
+    }
+
+    function renderSensorAuras() {
+        auraGroup.clearLayers();
+        if (!meshActive) return;
+
+        Object.values(nodeMarkers).forEach(marker => {
+            const type = marker.tactical_type;
+            if (type !== 'sensor' && type !== 'relay') return;
+
+            const latlng = marker.getLatLng();
+            const model = marker._nodeModel || '1';
+            const radius = getSensorRadius(model);
+
+            // Основна аура — напівпрозоре коло
+            L.circle(latlng, {
+                radius: radius,
+                color: type === 'relay' ? '#29b6f6' : '#00e676',
+                fillColor: type === 'relay' ? '#29b6f6' : '#00e676',
+                fillOpacity: 0.08,
+                weight: 1,
+                opacity: 0.25,
+                dashArray: '4, 6',
+                interactive: false
+            }).addTo(auraGroup);
+
+            // Зовнішнє кільце-пульс
+            L.circle(latlng, {
+                radius: radius * 0.6,
+                color: type === 'relay' ? '#29b6f6' : '#00e676',
+                fill: false,
+                weight: 1.5,
+                opacity: 0.15,
+                dashArray: '2, 8',
+                interactive: false
+            }).addTo(auraGroup);
+        });
     }
 
     async function updateMesh() {
@@ -702,40 +754,35 @@
                 }
             });
 
-            // Малюємо лінки
+            // Малюємо лінки — приглушені, єдиний стиль
+            const baseColor = '#4dd0e1'; // Teal — нейтральний, не крикливий
+
             topology.links.forEach(link => {
                 const n1 = nodeMarkers[link.source] || nodeMarkers[String(link.source)];
                 const n2 = nodeMarkers[link.target] || nodeMarkers[String(link.target)];
                 if (!n1 || !n2) {
-                    console.warn('Markers not found for link:', link.source, link.target, Object.keys(nodeMarkers));
+                    console.warn('Markers not found for link:', link.source, link.target);
                     return;
                 }
 
                 const p1 = n1.getLatLng();
                 const p2 = n2.getLatLng();
 
-                // Кольори: Синій (хороший зв'язок), Жовтий (обмежений), Червоний (поганий)
-                let color = '#2196F3'; // Blue
-                let dash = '8, 4';
-                let weight = 3;
-                let statusMsg = 'GOOD';
+                // Прозорість і товщина від якості зв'язку
+                const hasLos = link.terrain_los || link.fresnel_los;
+                const opacity = hasLos ? 0.4 : 0.15;
+                const weight = hasLos ? 2 : 1;
+                const dash = hasLos ? '6, 4' : '3, 6';
+                const distanceKm = link.distance_m / 1000;
 
-                // Лояльніша логіка для mesh network: пріоритет terrain LOS
-                if (link.terrain_los) {
-                    color = '#2196F3'; // Blue - хороший зв'язок по терену
-                    statusMsg = 'GOOD';
-                } else if (link.fresnel_los) {
-                    color = '#ffd700'; // Yellow - Френель в порядку, але терен блокує
-                    statusMsg = 'MARGINAL';
-                } else {
-                    color = '#ff0033'; // Red - без перспектив
-                    statusMsg = 'BLOCKED';
-                }
+                // Додаємо легкий ефект "затухання" з відстанню
+                const distFactor = Math.max(0.3, 1 - (distanceKm / 30));
+                const finalOpacity = opacity * distFactor;
 
                 const poly = L.polyline([p1, p2], {
-                    color: color,
+                    color: baseColor,
                     weight: weight,
-                    opacity: 0.9,
+                    opacity: finalOpacity,
                     dashArray: dash,
                     interactive: true
                 }).addTo(meshGroup);
@@ -745,7 +792,8 @@
                     showElevation(p1, p2);
                 });
 
-                poly.bindTooltip(`Link: ${link.distance_m}m | LOS: ${statusMsg}`, { sticky: true });
+                const statusLabel = hasLos ? (link.terrain_los ? 'LOS OK' : 'FRESNEL') : 'WEAK';
+                poly.bindTooltip(`${link.distance_m}m | ${statusLabel}`, { sticky: true });
             });
 
             // Підсвічуємо Master ноди
@@ -759,6 +807,9 @@
                     }));
                 }
             });
+
+            // Оновлюємо ауру сенсорів
+            renderSensorAuras();
 
             btn.innerText = 'MESH: ON';
             btn.style.borderColor = 'var(--ok)';
@@ -1695,10 +1746,12 @@
                     `;
                     m.bindPopup(popupContent, { maxWidth: 220, className: 'tactical-popup' });
                     m.tactical_type = n.type; // Зберігаємо тип для скидання іконки
+                    m._nodeModel = n.model || '1'; // Зберігаємо модель для аури
                     nodeMarkers[n.id] = m;
                 } else if (nodeMarkers[n.id]) {
                     // Якщо маркер вже є, просто оновлюємо вміст попапу
                     nodeMarkers[n.id].tactical_type = n.type;
+                    nodeMarkers[n.id]._nodeModel = n.model || '1';
                 }
                 
                 // List item для панелі ліворуч
