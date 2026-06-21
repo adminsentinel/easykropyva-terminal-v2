@@ -2,9 +2,6 @@
 import math
 import time
 import os
-import sys
-import threading
-import asyncio
 from pathlib import Path
 from flask import Flask, render_template, jsonify, request, Response
 from flask_cors import CORS
@@ -175,7 +172,7 @@ def index():
     easyk_path = Path(__file__).parent / "easykropyva_terminal_v1_5.html"
     if easyk_path.exists():
         return Response(easyk_path.read_text(encoding="utf-8"), mimetype="text/html")
-    return render_template('index.html')
+    return "<h1>HTML file not found</h1>", 404
 
 @app.route('/api/los', methods=['POST'])
 def api_los():
