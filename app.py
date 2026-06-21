@@ -2,6 +2,7 @@
 import math
 import time
 import os
+import random
 from pathlib import Path
 from flask import Flask, render_template, jsonify, request, Response
 from flask_cors import CORS
@@ -159,10 +160,9 @@ def compute_los(elevations, base_height_a=0.5, base_height_b=0.5, freq_mhz=433.0
 
 def generate_synthetic_elevation(lat1, lng1, lat2, lng2, samples=30):
     """Генерує синтетичні дані рельєфу на основі координат (як fallback)."""
-    import random
-    random.seed(int(abs(lat1 * 1000) + abs(lng1 * 1000)))
+    rng = random.Random(int(abs(lat1 * 1000) + abs(lng1 * 1000) + abs(lat2 * 1000) + abs(lng2 * 1000)))
     base_elev = 200 + (lat1 - 48) * 50
-    return [base_elev + random.uniform(-5, 5) + math.sin(i/5)*10 for i in range(samples)]
+    return [base_elev + rng.uniform(-5, 5) + math.sin(i/5)*10 for i in range(samples)]
 
 # --- ROUTES ---
 
@@ -218,7 +218,17 @@ def api_los():
 def api_nodes():
     global nodes
     if request.method == 'GET':
-        return jsonify(list(nodes.values()))
+        result = []
+        for n in nodes.values():
+            n_copy = dict(n)
+            if n_copy.get('type') in ('sensor', 'relay'):
+                n_copy.setdefault('battery', round(70 + (hash(str(n_copy.get('id', ''))) % 30), 0))
+                n_copy.setdefault('signal_dbm', round(-80 + (hash(str(n_copy.get('id', '')) + 'sig') % 30), 1))
+                n_copy.setdefault('online', True)
+                n_copy.setdefault('mesh_active', n_copy.get('mesh_active', True))
+                n_copy.setdefault('last_seen', time.time())
+            result.append(n_copy)
+        return jsonify(result)
     elif request.method == 'POST':
         data = request.get_json()
         node_id = int(time.time() * 1000)
@@ -245,6 +255,24 @@ def api_targets():
         target_id = request.args.get('id', type=int)
         if target_id in targets: del targets[target_id]
         return jsonify({'ok': True})
+
+@app.route('/api/nodes/<int:node_id>', methods=['PATCH'])
+def patch_node(node_id):
+    global nodes
+    if node_id not in nodes:
+        return jsonify({'error': 'Node not found'}), 404
+    data = request.get_json(silent=True) or {}
+    nodes[node_id].update(data)
+    return jsonify(nodes[node_id])
+
+@app.route('/api/targets/<int:target_id>', methods=['PATCH'])
+def patch_target(target_id):
+    global targets
+    if target_id not in targets:
+        return jsonify({'error': 'Target not found'}), 404
+    data = request.get_json(silent=True) or {}
+    targets[target_id].update(data)
+    return jsonify(targets[target_id])
 
 @app.route('/api/mesh_topology')
 def api_mesh_topology():

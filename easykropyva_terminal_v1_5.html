@@ -976,9 +976,9 @@
         placingMode = (placingMode === mode) ? null : mode;
         document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
 
-        // Не скидати range якщо ми просто вимикаємо режим або це той самий режим
-        if (mode !== 'range' || placingMode !== 'range') {
-            if (prevMode !== 'range') resetRange(); // Скидати тільки при зміні з іншого режиму
+        // Якщо виходимо з режиму RANGE — очищаємо лінію
+        if (prevMode === 'range' && placingMode !== 'range') {
+            resetRange();
         }
 
         if (placingMode) {
