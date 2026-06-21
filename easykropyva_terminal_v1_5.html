@@ -754,35 +754,26 @@
                 }
             });
 
-            // Малюємо лінки — приглушені, єдиний стиль
-            const baseColor = '#4dd0e1'; // Teal — нейтральний, не крикливий
+            // Малюємо лінки — тільки реальні маршрути, без павутини
+            const baseColor = '#4dd0e1';
 
             topology.links.forEach(link => {
                 const n1 = nodeMarkers[link.source] || nodeMarkers[String(link.source)];
                 const n2 = nodeMarkers[link.target] || nodeMarkers[String(link.target)];
-                if (!n1 || !n2) {
-                    console.warn('Markers not found for link:', link.source, link.target);
-                    return;
-                }
+                if (!n1 || !n2) return;
 
                 const p1 = n1.getLatLng();
                 const p2 = n2.getLatLng();
 
-                // Прозорість і товщина від якості зв'язку
                 const hasLos = link.terrain_los || link.fresnel_los;
-                const opacity = hasLos ? 0.4 : 0.15;
+                const opacity = hasLos ? 0.5 : 0.2;
                 const weight = hasLos ? 2 : 1;
-                const dash = hasLos ? '6, 4' : '3, 6';
-                const distanceKm = link.distance_m / 1000;
-
-                // Додаємо легкий ефект "затухання" з відстанню
-                const distFactor = Math.max(0.3, 1 - (distanceKm / 30));
-                const finalOpacity = opacity * distFactor;
+                const dash = hasLos ? '5, 4' : '3, 8';
 
                 const poly = L.polyline([p1, p2], {
                     color: baseColor,
                     weight: weight,
-                    opacity: finalOpacity,
+                    opacity: opacity,
                     dashArray: dash,
                     interactive: true
                 }).addTo(meshGroup);
@@ -795,6 +786,15 @@
                 const statusLabel = hasLos ? (link.terrain_los ? 'LOS OK' : 'FRESNEL') : 'WEAK';
                 poly.bindTooltip(`${link.distance_m}m | ${statusLabel}`, { sticky: true });
             });
+
+            // Показуємо інформацію про маршрути в заголовку
+            if (topology.routes && topology.routes.length > 0) {
+                const multiHop = topology.routes.filter(r => r.hops > 1);
+                if (multiHop.length > 0) {
+                    document.getElementById('mesh-toggle-btn').title =
+                        `${topology.routes.length} routes, ${multiHop.length} multi-hop`;
+                }
+            }
 
             // Підсвічуємо Master ноди
             topology.masters.forEach(masterId => {

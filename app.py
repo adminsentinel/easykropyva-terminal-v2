@@ -278,90 +278,141 @@ def patch_target(target_id):
 def api_mesh_topology():
     try:
         mesh_nodes = [n for n in nodes.values() if n.get('type') in ['sensor', 'relay']]
-        links = []
-        pairs = []
+        if len(mesh_nodes) < 2:
+            return jsonify({'links': [], 'masters': [], 'routes': []})
 
-        # Збираємо всі можливі пари
+        # Крок 1: збираємо всі пари та рахуємо LOS
+        pairs = []
         for i in range(len(mesh_nodes)):
             for j in range(i + 1, len(mesh_nodes)):
                 n1, n2 = mesh_nodes[i], mesh_nodes[j]
                 dist = haversine_distance(n1['lat'], n1['lng'], n2['lat'], n2['lng'])
-                if dist < 30000: # 30km max link
-                    pairs.append({'n1': n1, 'n2': n2, 'dist': dist})
+                if dist < 30000:
+                    try:
+                        elevs = generate_synthetic_elevation(n1['lat'], n1['lng'], n2['lat'], n2['lng'], 15)
+                        freq = 900.0 if n1.get('model') == 'relay' or n2.get('model') == 'relay' else 433.0
+                        res = compute_los(elevs, n1.get('altitude_m', 0.5), n2.get('altitude_m', 0.5), freq, dist)
+                        pairs.append({
+                            'source': n1['id'], 'target': n2['id'],
+                            'distance_m': round(dist, 1),
+                            'has_los': res['пряма_видимість'],
+                            'terrain_los': res['terrain_los'],
+                            'fresnel_los': res['fresnel_los'],
+                            'beyond_horizon': res['beyond_horizon'],
+                            'path_loss_db': res['path_loss_db']
+                        })
+                    except:
+                        pass
 
-        # Розраховуємо LOS для всіх пар
+        # Крок 2: будуємо граф ТІЛЬКИ з LOS-з'єднань
+        #    вага = distance_m (щоб знаходити найкоротші шляхи)
+        graph = {}
+        node_ids = [n['id'] for n in mesh_nodes]
+        for nid in node_ids:
+            graph[nid] = {}
+
         for p in pairs:
-            try:
-                samples = 15
-                elevs = generate_synthetic_elevation(p['n1']['lat'], p['n1']['lng'], p['n2']['lat'], p['n2']['lng'], samples)
-                freq = 900.0 if p['n1'].get('model') == 'relay' or p['n2'].get('model') == 'relay' else 433.0
-                res = compute_los(elevs, p['n1'].get('altitude_m', 0.5), p['n2'].get('altitude_m', 0.5), freq, p['dist'])
+            if p['terrain_los'] and not p['beyond_horizon']:
+                # Додаємо в граф тільки реальні LOS-з'єднання
+                w = p['distance_m']
+                graph[p['source']][p['target']] = w
+                graph[p['target']][p['source']] = w
 
-                # Зберігаємо розширену інформацію для кожної пари
-                p['has_los'] = res['пряма_видимість']
-                p['terrain_los'] = res['terrain_los']
-                p['fresnel_los'] = res['fresnel_los']
-                p['beyond_horizon'] = res['beyond_horizon']
-            except Exception as e:
-                print(f"Error calculating LOS for pair: {e}")
-                # Fallback values if LOS calculation fails
-                p['has_los'] = False
-                p['terrain_los'] = False
-                p['fresnel_los'] = False
-                p['beyond_horizon'] = False
+        # Крок 3: Дейкстра для кожної ноди — знаходимо найкоротші шляхи до всіх інших
+        def dijkstra(start, graph, all_nodes):
+            dist = {n: float('inf') for n in all_nodes}
+            prev = {n: None for n in all_nodes}
+            dist[start] = 0
+            unvisited = set(all_nodes)
 
-        # Алгоритм "Best-Neighbors": для кожного вузла обираємо 2-3 найкращі зв'язки
-        selected_links = set()
-        max_neighbors = 3
+            while unvisited:
+                u = min(unvisited, key=lambda x: dist[x])
+                unvisited.remove(u)
+                if dist[u] == float('inf'):
+                    break
+                for v, w in graph.get(u, {}).items():
+                    if v in unvisited:
+                        alt = dist[u] + w
+                        if alt < dist[v]:
+                            dist[v] = alt
+                            prev[v] = u
+            return prev, dist
 
-        for node in mesh_nodes:
-            # Знаходимо всі можливі сусіди для цього вузла
-            neighbors = []
-            for p in pairs:
-                if p['n1']['id'] == node['id']:
-                    neighbors.append({'other': p['n2'], 'dist': p['dist'], 'has_los': p['has_los'], 'pair': p})
-                elif p['n2']['id'] == node['id']:
-                    neighbors.append({'other': p['n1'], 'dist': p['dist'], 'has_los': p['has_los'], 'pair': p})
+        # Крок 4: збираємо всі ребра, що входять в реальні маршрути
+        used_edges = set()  # frozenset([a, b])
+        routes = []         # список маршрутів для інфи
 
-            # Сортуємо сусідів: спочатку за LOS (True краще), потім за відстаню (ближче краще)
-            neighbors.sort(key=lambda x: (not x['has_los'], x['dist']))
+        for src in node_ids:
+            prev, dist = dijkstra(src, graph, node_ids)
+            for dst in node_ids:
+                if src >= dst:  # кожну пару один раз (симетрично)
+                    continue
+                if dist[dst] == float('inf'):
+                    continue  # немає шляху
 
-            # Обираємо до max_neighbors найкращих
-            for i, n in enumerate(neighbors[:max_neighbors]):
-                link_key = frozenset([node['id'], n['other']['id']])
-                selected_links.add((link_key, n['pair']))
+                # Відновлюємо шлях
+                path = []
+                cur = dst
+                while cur is not None:
+                    path.append(cur)
+                    cur = prev[cur]
+                path.reverse()
 
-        # Створюємо фінальний список лінків
-        for link_key, p in selected_links:
-            links.append({
-                'source': p['n1']['id'],
-                'target': p['n2']['id'],
-                'distance_m': round(p['dist'], 1),
-                'has_los': p['has_los'],
-                'terrain_los': p['terrain_los'],
-                'fresnel_los': p['fresnel_los'],
-                'beyond_horizon': p['beyond_horizon']
-            })
+                if len(path) >= 2:
+                    # Додаємо всі ребра шляху
+                    for k in range(len(path) - 1):
+                        edge = frozenset([path[k], path[k+1]])
+                        used_edges.add(edge)
 
-        # Визначення майстер-нод (спрощено: хто має більше зв'язків)
+                    routes.append({
+                        'source': src,
+                        'target': dst,
+                        'hops': len(path) - 1,
+                        'path': path,
+                        'distance_m': round(dist[dst], 1)
+                    })
+
+        # Крок 5: формуємо фінальні лінки з used_edges
+        pair_map = {}
+        for p in pairs:
+            key = frozenset([p['source'], p['target']])
+            pair_map[key] = p
+
+        final_links = []
+        for edge in used_edges:
+            a, b = tuple(edge)
+            if edge in pair_map:
+                p = pair_map[edge]
+                final_links.append({
+                    'source': p['source'],
+                    'target': p['target'],
+                    'distance_m': p['distance_m'],
+                    'has_los': p['has_los'],
+                    'terrain_los': p['terrain_los'],
+                    'fresnel_los': p['fresnel_los'],
+                    'beyond_horizon': p['beyond_horizon']
+                })
+
+        # Крок 6: майстер-ноди — ті, через які проходить найбільше маршрутів
+        route_through = {nid: 0 for nid in node_ids}
+        for r in routes:
+            for hop_node in r['path'][1:-1]:  # крім source/target
+                route_through[hop_node] = route_through.get(hop_node, 0) + 1
+
         masters = []
-        if len(mesh_nodes) > 1:
-            conn_counts = {n['id']: 0 for n in mesh_nodes}
-            for l in links:
-                if l['has_los']:
-                    conn_counts[l['source']] += 1
-                    conn_counts[l['target']] += 1
-
-            for nid, count in conn_counts.items():
-                if count >= 2:  # Якщо вузол має мінімум 2 LOS-з'язки
+        if route_through:
+            max_val = max(route_through.values())
+            for nid, count in route_through.items():
+                if count > 0 and count >= max_val * 0.5:
                     masters.append(nid)
 
-        return jsonify({'links': links, 'masters': masters})
+        return jsonify({'links': final_links, 'masters': masters, 'routes': routes})
+
     except Exception as e:
         print(f"Mesh topology error: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({'links': [], 'masters': [], 'error': str(e)}), 500
+        return jsonify({'links': [], 'masters': [], 'routes': [], 'error': str(e)}), 500
 
 @app.route('/api/home', methods=['GET', 'POST', 'DELETE'])
 def api_home_point():
