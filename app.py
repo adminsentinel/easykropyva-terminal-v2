@@ -395,9 +395,12 @@ def api_mesh_topology():
 
         # Крок 6: майстер-ноди — ті, через які проходить найбільше маршрутів
         route_through = {nid: 0 for nid in node_ids}
+        hop_count = {}  # hops від source до кожного target
         for r in routes:
-            for hop_node in r['path'][1:-1]:  # крім source/target
+            for hop_node in r['path'][1:-1]:
                 route_through[hop_node] = route_through.get(hop_node, 0) + 1
+            key = (r['source'], r['target'])
+            hop_count[key] = r['hops']
 
         masters = []
         if route_through:
@@ -406,7 +409,28 @@ def api_mesh_topology():
                 if count > 0 and count >= max_val * 0.5:
                     masters.append(nid)
 
-        return jsonify({'links': final_links, 'masters': masters, 'routes': routes})
+        # Додаємо hop_count та route_through до лінків
+        for link in final_links:
+            key = (link['source'], link['target'])
+            link['hops'] = hop_count.get(key, 1)
+            # Симуляція енерго-статусу на основі battery
+            src_node = nodes.get(link['source'], {})
+            battery = src_node.get('battery', 100)
+            if battery < 20:
+                link['energy_state'] = 'hibernate'
+            elif battery < 50:
+                link['energy_state'] = 'sleep'
+            elif battery < 80:
+                link['energy_state'] = 'verify'
+            else:
+                link['energy_state'] = 'alert'
+
+        return jsonify({
+            'links': final_links,
+            'masters': masters,
+            'routes': routes,
+            'route_through': route_through
+        })
 
     except Exception as e:
         print(f"Mesh topology error: {e}")

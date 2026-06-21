@@ -783,8 +783,10 @@
                     showElevation(p1, p2);
                 });
 
+                const hops = link.hops || 1;
                 const statusLabel = hasLos ? (link.terrain_los ? 'LOS OK' : 'FRESNEL') : 'WEAK';
-                poly.bindTooltip(`${link.distance_m}m | ${statusLabel}`, { sticky: true });
+                const energyLabel = link.energy_state || '';
+                poly.bindTooltip(`${link.distance_m}m | ${statusLabel} | ${hops} hop${hops>1?'s':''} ${energyLabel ? '• '+energyLabel : ''}`, { sticky: true });
             });
 
             // Показуємо інформацію про маршрути в заголовку
@@ -796,17 +798,23 @@
                 }
             }
 
-            // Підсвічуємо Master ноди
-            topology.masters.forEach(masterId => {
-                const m = nodeMarkers[masterId] || nodeMarkers[String(masterId)];
-                if (m) {
-                    m.setIcon(L.divIcon({
-                        className: 'radar-icon',
-                        html: `<div class="radar-ring" style="border-color:#ffd700; width:30px; height:30px; left:-5px; top:-5px;"></div><div class="radar-blip" style="background:#ffd700;box-shadow:0 0 16px #ffd700"></div>`,
-                        iconSize: [20, 20], iconAnchor: [10, 10]
-                    }));
-                }
-            });
+            // Оновлюємо іконки майстер-нод з route-through count
+            if (topology.route_through) {
+                Object.keys(topology.route_through).forEach(nid => {
+                    const count = topology.route_through[nid];
+                    const m = nodeMarkers[nid] || nodeMarkers[String(nid)];
+                    if (m && count > 0) {
+                        // Встановлюємо майстер-іконку з лічильником
+                        m.setIcon(L.divIcon({
+                            className: 'radar-icon',
+                            html: `<div class="radar-ring" style="border-color:#ffd700; width:30px; height:30px; left:-5px; top:-5px;"></div>
+                                   <div class="radar-blip" style="background:#ffd700;box-shadow:0 0 16px #ffd700"></div>
+                                   <div style="position:absolute; top:-2px; right:-8px; background:#ffd700; color:#000; font-size:8px; font-weight:bold; padding:0 3px; border-radius:4px; line-height:12px;">${count}</div>`,
+                            iconSize: [20, 20], iconAnchor: [10, 10]
+                        }));
+                    }
+                });
+            }
 
             // Оновлюємо ауру сенсорів
             renderSensorAuras();
@@ -841,12 +849,39 @@
         iconAnchor: [10, 10]
     });
 
+    // Енерго-статус: HIBERNATE=жовтий, SLEEP=сірий, VERIFY=блакитний, ALERT=зелений
+    const ENERGY_COLORS = {
+        hibernate: '#ff9800',  // помаранчевий
+        sleep:     '#78909c',  // сірий
+        verify:    '#29b6f6',  // блакитний
+        alert:     '#00e676',  // зелений (активний)
+    };
+
     const ICONS = {
         sensor:  makeIcon('#00e676'),
         relay:   makeIcon('#29b6f6'),
         gateway: makeIcon('#00e676'),
         target:  makeIcon('#ff3366')
     };
+
+    function getEnergyColor(battery) {
+        if (battery < 20) return ENERGY_COLORS.hibernate;
+        if (battery < 50) return ENERGY_COLORS.sleep;
+        if (battery < 80) return ENERGY_COLORS.verify;
+        return ENERGY_COLORS.alert;
+    }
+
+    function makeEnergyIcon(color, energyColor) {
+        // Маленька точка енерго-статусу в кутку іконки
+        return L.divIcon({
+            className: 'radar-icon',
+            html: `<div class="radar-ring" style="border-color:${color}"></div>
+                   <div class="radar-blip" style="background:${color};box-shadow:0 0 12px ${color}"></div>
+                   <div style="position:absolute; bottom:-2px; right:-2px; width:6px; height:6px; border-radius:50%; background:${energyColor}; border:1px solid #0a1116;"></div>`,
+            iconSize: [20, 20],
+            iconAnchor: [10, 10]
+        });
+    }
 
     // ---- State ----
     let nodeMarkers = {};
@@ -1699,8 +1734,17 @@
             nodes.forEach(n => {
                 activeNodeIds.add(n.id);
                 if (!nodeMarkers[n.id] && n.lat && n.lng) {
+                    // Іконка з енерго-статусом для сенсорів/реле
+                    let icon;
+                    if (n.type === 'sensor' || n.type === 'relay') {
+                        const baseColor = n.type === 'relay' ? '#29b6f6' : '#00e676';
+                        const energyColor = getEnergyColor(n.battery || 100);
+                        icon = makeEnergyIcon(baseColor, energyColor);
+                    } else {
+                        icon = ICONS[n.type] || ICONS.sensor;
+                    }
                     const m = L.marker([n.lat, n.lng], { 
-                        icon: ICONS[n.type] || ICONS.sensor,
+                        icon: icon,
                         draggable: true 
                     }).addTo(map);
                     
@@ -1716,9 +1760,17 @@
                         }
                     });
                     
+                    const battPct = n.battery || 100;
+                    const energyLabel = battPct < 20 ? 'HIBERNATE' : battPct < 50 ? 'SLEEP' : battPct < 80 ? 'VERIFY' : 'ALERT';
+                    const energyColor = getEnergyColor(battPct);
+                    
                     const popupContent = `
                         <div style="min-width:180px; color:#fff; background:#121d26; padding:5px;">
-                            <b style="color:var(--warn)">${n.name}</b><br>
+                            <b style="color:var(--warn)">${n.name}</b>
+                            <div style="margin-top:4px; font-size:10px; display:flex; align-items:center; gap:6px; color:${energyColor}">
+                                <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:${energyColor}"></span>
+                                ${energyLabel} • 🔋 ${battPct}% • 📶 ${n.signal_dbm||'--'}dBm
+                            </div>
                             <div style="margin-top:10px">
                                 Висота (м): <input type="number" step="0.1" value="${n.altitude_m}" 
                                     onchange="updateNodeConfig(${n.id}, {altitude_m: parseFloat(this.value)})"
