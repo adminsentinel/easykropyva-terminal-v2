@@ -318,41 +318,53 @@ def api_mesh_topology():
                 graph[p['target']][p['source']] = w
                 p['link_type'] = 'direct_los'  # позначка для фронтенду
 
-        # Другий прохід: ізольовані ноди — підключаємо через найближчу Fresnel або найкоротшу відстань
-        # Сортуємо пари: Fresnel перші, потім найкоротші
+        # Другий прохід: ізольовані ноди — підключаємо до найближчої ноди, що вже в мережі
+        # Спочатку знаходимо хто вже в мережі, хто ізольований
+        connected_set = {nid for nid in node_ids if len(graph[nid]) > 0}
+        isolated = [nid for nid in node_ids if len(graph[nid]) == 0]
+
+        # Сортуємо fallback пари: Fresnel перші, потім найкоротші
         fallback_pairs = sorted(
             [p for p in pairs if p.get('link_type') != 'direct_los'],
             key=lambda x: (not x.get('fresnel_los', False), x['distance_m'])
         )
 
-        for nid in node_ids:
-            degree = len(graph[nid])
-            if degree > 0:
-                continue  # вже підключена
+        # Підключаємо ізольовані ноди до найближчої вже підключеної
+        MAX_ATTEMPTS = 10
+        attempt = 0
+        while isolated and connected_set and attempt < MAX_ATTEMPTS:
+            attempt += 1
+            for nid in list(isolated):
+                best_link = None
+                best_other = None
+                best_dist = float('inf')
 
-            # Ізольована — шукаємо найкращий fallback до БУДЬ-ЯКОЇ іншої ноди
-            best = None
-            for p in fallback_pairs:
-                other = p['target'] if p['source'] == nid else (p['source'] if p['target'] == nid else None)
-                if other is not None:
-                    # Перевіряємо чи інша нода має хоч якийсь зв'язок (щоб не підключати ізольовану до ізольованої)
-                    if len(graph[other]) > 0 or other == nid:
-                        continue
-                    best = p
-                    break
-
-            # Якщо інша теж ізольована — просто беремо найближчу пару
-            if best is None:
                 for p in fallback_pairs:
-                    if p['source'] == nid or p['target'] == nid:
-                        best = p
-                        break
+                    other = p['target'] if p['source'] == nid else (p['source'] if p['target'] == nid else None)
+                    if other is not None and other in connected_set and p['distance_m'] < best_dist:
+                        best_link = p
+                        best_other = other
+                        best_dist = p['distance_m']
 
-            if best:
-                w = best['distance_m']
-                graph[best['source']][best['target']] = w
-                graph[best['target']][best['source']] = w
-                best['link_type'] = 'fallback'
+                if best_link:
+                    w = best_link['distance_m']
+                    graph[best_link['source']][best_link['target']] = w
+                    graph[best_link['target']][best_link['source']] = w
+                    best_link['link_type'] = 'fallback'
+                    connected_set.add(nid)
+                    isolated.remove(nid)
+
+        # Якщо всі ноди ізольовані (зовсім немає LOS) — з'єднуємо їх у ланцюг
+        if len(isolated) == len(node_ids):
+            for p in fallback_pairs:
+                if p['source'] in isolated and p['target'] in isolated:
+                    w = p['distance_m']
+                    graph[p['source']][p['target']] = w
+                    graph[p['target']][p['source']] = w
+                    p['link_type'] = 'fallback'
+                    connected_set.add(p['source'])
+                    connected_set.add(p['target'])
+                    isolated = [n for n in isolated if n not in connected_set]
 
         # Крок 3: Дейкстра для кожної ноди — знаходимо найкоротші шляхи до всіх інших
         def dijkstra(start, graph, all_nodes):
