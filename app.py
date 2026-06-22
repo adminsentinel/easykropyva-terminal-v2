@@ -304,7 +304,7 @@ def api_mesh_topology():
                     except:
                         pass
 
-        # Крок 2: будуємо граф — спочатку з LOS-з'єднань, потім підключаємо ізольовані
+        # Крок 2: будуємо граф — спочатку з LOS, потім об'єднуємо всі компоненти
         graph = {}
         node_ids = [n['id'] for n in mesh_nodes]
         for nid in node_ids:
@@ -316,55 +316,78 @@ def api_mesh_topology():
                 w = p['distance_m']
                 graph[p['source']][p['target']] = w
                 graph[p['target']][p['source']] = w
-                p['link_type'] = 'direct_los'  # позначка для фронтенду
+                p['link_type'] = 'direct_los'
 
-        # Другий прохід: ізольовані ноди — підключаємо до найближчої ноди, що вже в мережі
-        # Спочатку знаходимо хто вже в мережі, хто ізольований
-        connected_set = {nid for nid in node_ids if len(graph[nid]) > 0}
-        isolated = [nid for nid in node_ids if len(graph[nid]) == 0]
+        # Функція: знайти компоненти зв'язності
+        def find_components(g):
+            visited = set()
+            comps = []
+            for nid in g:
+                if nid in visited:
+                    continue
+                comp = set()
+                stack = [nid]
+                while stack:
+                    cur = stack.pop()
+                    if cur in visited:
+                        continue
+                    visited.add(cur)
+                    comp.add(cur)
+                    for nb in g[cur]:
+                        if nb not in visited:
+                            stack.append(nb)
+                comps.append(comp)
+            return comps
 
-        # Сортуємо fallback пари: Fresnel перші, потім найкоротші
-        fallback_pairs = sorted(
-            [p for p in pairs if p.get('link_type') != 'direct_los'],
-            key=lambda x: (not x.get('fresnel_los', False), x['distance_m'])
-        )
-
-        # Підключаємо ізольовані ноди до найближчої вже підключеної
-        MAX_ATTEMPTS = 10
-        attempt = 0
-        while isolated and connected_set and attempt < MAX_ATTEMPTS:
-            attempt += 1
-            for nid in list(isolated):
-                best_link = None
-                best_other = None
-                best_dist = float('inf')
-
-                for p in fallback_pairs:
-                    other = p['target'] if p['source'] == nid else (p['source'] if p['target'] == nid else None)
-                    if other is not None and other in connected_set and p['distance_m'] < best_dist:
-                        best_link = p
-                        best_other = other
+        # Функція: найближча пара між двома компонентами
+        def closest_pair_between(comp_a, comp_b, all_pairs):
+            best = None
+            best_dist = float('inf')
+            for p in all_pairs:
+                src_in_a = p['source'] in comp_a
+                tgt_in_b = p['target'] in comp_b
+                src_in_b = p['source'] in comp_b
+                tgt_in_a = p['target'] in comp_a
+                if (src_in_a and tgt_in_b) or (src_in_b and tgt_in_a):
+                    if p['distance_m'] < best_dist:
+                        best = p
                         best_dist = p['distance_m']
+            return best
 
-                if best_link:
-                    w = best_link['distance_m']
-                    graph[best_link['source']][best_link['target']] = w
-                    graph[best_link['target']][best_link['source']] = w
-                    best_link['link_type'] = 'fallback'
-                    connected_set.add(nid)
-                    isolated.remove(nid)
+        # Об'єднуємо компоненти поки не залишиться одна
+        all_pairs_sorted = sorted(pairs, key=lambda x: x['distance_m'])
+        MAX_MERGE_ITER = 20
+        merge_iter = 0
+        while merge_iter < MAX_MERGE_ITER:
+            merge_iter += 1
+            comps = find_components(graph)
+            if len(comps) <= 1:
+                break
 
-        # Якщо всі ноди ізольовані (зовсім немає LOS) — з'єднуємо їх у ланцюг
-        if len(isolated) == len(node_ids):
-            for p in fallback_pairs:
-                if p['source'] in isolated and p['target'] in isolated:
-                    w = p['distance_m']
-                    graph[p['source']][p['target']] = w
-                    graph[p['target']][p['source']] = w
+            # Шукаємо найближчу пару між різними компонентами
+            best_merge = None
+            best_merge_dist = float('inf')
+            for i in range(len(comps)):
+                for j in range(i + 1, len(comps)):
+                    pair = closest_pair_between(comps[i], comps[j], all_pairs_sorted)
+                    if pair and pair['distance_m'] < best_merge_dist:
+                        best_merge = pair
+                        best_merge_dist = pair['distance_m']
+
+            if best_merge:
+                w = best_merge['distance_m']
+                graph[best_merge['source']][best_merge['target']] = w
+                graph[best_merge['target']][best_merge['source']] = w
+                best_merge['link_type'] = best_merge.get('link_type', 'fallback')
+            else:
+                break  # немає чим з'єднати
+
+        # Позначка fallback для всіх не-LOS лінків що потрапили в граф
+        for p in pairs:
+            if p.get('link_type') != 'direct_los':
+                # Перевіряємо чи це ребро реально в графі
+                if p['target'] in graph.get(p['source'], {}):
                     p['link_type'] = 'fallback'
-                    connected_set.add(p['source'])
-                    connected_set.add(p['target'])
-                    isolated = [n for n in isolated if n not in connected_set]
 
         # Крок 3: Дейкстра для кожної ноди — знаходимо найкоротші шляхи до всіх інших
         def dijkstra(start, graph, all_nodes):
