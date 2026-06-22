@@ -756,6 +756,7 @@
 
             // Малюємо лінки — тільки реальні маршрути, без павутини
             const baseColor = '#4dd0e1';
+            const fallbackColor = '#546e7a';  // сірий для fallback
 
             topology.links.forEach(link => {
                 const n1 = nodeMarkers[link.source] || nodeMarkers[String(link.source)];
@@ -765,13 +766,15 @@
                 const p1 = n1.getLatLng();
                 const p2 = n2.getLatLng();
 
+                const isDirect = link.link_type === 'direct_los';
                 const hasLos = link.terrain_los || link.fresnel_los;
-                const opacity = hasLos ? 0.5 : 0.2;
-                const weight = hasLos ? 2 : 1;
-                const dash = hasLos ? '5, 4' : '3, 8';
+                const color = isDirect ? baseColor : fallbackColor;
+                const opacity = isDirect ? (hasLos ? 0.5 : 0.25) : 0.2;
+                const weight = isDirect ? 2 : 1;
+                const dash = isDirect ? '5, 4' : '2, 8';
 
                 const poly = L.polyline([p1, p2], {
-                    color: baseColor,
+                    color: color,
                     weight: weight,
                     opacity: opacity,
                     dashArray: dash,
@@ -784,7 +787,7 @@
                 });
 
                 const hops = link.hops || 1;
-                const statusLabel = hasLos ? (link.terrain_los ? 'LOS OK' : 'FRESNEL') : 'WEAK';
+                const statusLabel = isDirect ? (link.terrain_los ? 'LOS OK' : 'FRESNEL') : 'FALLBACK';
                 const energyLabel = link.energy_state || '';
                 poly.bindTooltip(`${link.distance_m}m | ${statusLabel} | ${hops} hop${hops>1?'s':''} ${energyLabel ? '• '+energyLabel : ''}`, { sticky: true });
             });

@@ -304,19 +304,55 @@ def api_mesh_topology():
                     except:
                         pass
 
-        # Крок 2: будуємо граф ТІЛЬКИ з LOS-з'єднань
-        #    вага = distance_m (щоб знаходити найкоротші шляхи)
+        # Крок 2: будуємо граф — спочатку з LOS-з'єднань, потім підключаємо ізольовані
         graph = {}
         node_ids = [n['id'] for n in mesh_nodes]
         for nid in node_ids:
             graph[nid] = {}
 
+        # Перший прохід: тільки LOS-з'єднання
         for p in pairs:
             if p['terrain_los'] and not p['beyond_horizon']:
-                # Додаємо в граф тільки реальні LOS-з'єднання
                 w = p['distance_m']
                 graph[p['source']][p['target']] = w
                 graph[p['target']][p['source']] = w
+                p['link_type'] = 'direct_los'  # позначка для фронтенду
+
+        # Другий прохід: ізольовані ноди — підключаємо через найближчу Fresnel або найкоротшу відстань
+        # Сортуємо пари: Fresnel перші, потім найкоротші
+        fallback_pairs = sorted(
+            [p for p in pairs if p.get('link_type') != 'direct_los'],
+            key=lambda x: (not x.get('fresnel_los', False), x['distance_m'])
+        )
+
+        for nid in node_ids:
+            degree = len(graph[nid])
+            if degree > 0:
+                continue  # вже підключена
+
+            # Ізольована — шукаємо найкращий fallback до БУДЬ-ЯКОЇ іншої ноди
+            best = None
+            for p in fallback_pairs:
+                other = p['target'] if p['source'] == nid else (p['source'] if p['target'] == nid else None)
+                if other is not None:
+                    # Перевіряємо чи інша нода має хоч якийсь зв'язок (щоб не підключати ізольовану до ізольованої)
+                    if len(graph[other]) > 0 or other == nid:
+                        continue
+                    best = p
+                    break
+
+            # Якщо інша теж ізольована — просто беремо найближчу пару
+            if best is None:
+                for p in fallback_pairs:
+                    if p['source'] == nid or p['target'] == nid:
+                        best = p
+                        break
+
+            if best:
+                w = best['distance_m']
+                graph[best['source']][best['target']] = w
+                graph[best['target']][best['source']] = w
+                best['link_type'] = 'fallback'
 
         # Крок 3: Дейкстра для кожної ноди — знаходимо найкоротші шляхи до всіх інших
         def dijkstra(start, graph, all_nodes):
@@ -390,7 +426,8 @@ def api_mesh_topology():
                     'has_los': p['has_los'],
                     'terrain_los': p['terrain_los'],
                     'fresnel_los': p['fresnel_los'],
-                    'beyond_horizon': p['beyond_horizon']
+                    'beyond_horizon': p['beyond_horizon'],
+                    'link_type': p.get('link_type', 'direct_los')
                 })
 
         # Крок 6: майстер-ноди — ті, через які проходить найбільше маршрутів
