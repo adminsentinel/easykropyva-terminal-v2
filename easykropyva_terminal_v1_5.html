@@ -386,6 +386,44 @@
   </style>
 </head>
 <body>
+
+<!-- Splash screen (опис проекту при старті) -->
+<div id="splash-modal" class="modal" style="display:flex;">
+  <div class="modal-content" style="max-width:520px; min-width:360px;">
+    <div class="modal-title" style="color:var(--ok); font-size:16px;">⚡ EasyKropyva Tactical Terminal</div>
+    <div class="modal-body" style="font-size:11px; line-height:1.6; color:var(--text-dim);">
+      <p style="margin:0 0 10px 0; color:var(--text); font-size:12px;">
+        Тактичний веб-термінал для планування та візуалізації сенсорної mesh-мережі на мапі з аналізом радіовидимості.
+      </p>
+      <div style="margin-bottom:6px;"><b style="color:var(--warn);">▸ Що робить:</b></div>
+      <ul style="margin:0 0 8px 0; padding-left:16px;">
+        <li>Додаєш сенсори/реле на мапу → LOS, зона Френеля, дифракція, радіогоризонт</li>
+        <li>Mesh-топологія (Дейкстра + компоненти) — реальні маршрути сигналу</li>
+        <li>Профіль висот з RSSI та path loss</li>
+        <li>Енерго-статуси нод, радіус покриття, master-ноди</li>
+      </ul>
+      <div style="margin-bottom:6px;"><b style="color:var(--warn);">▸ Як працює:</b></div>
+      <ul style="margin:0 0 8px 0; padding-left:16px;">
+        <li>Flask + Leaflet.js + Chart.js → HTTP REST API</li>
+        <li>Дані в пам'яті · Рельєф — Open-Elevation + synthetic fallback</li>
+        <li>Хостинг на Render (Gunicorn)</li>
+      </ul>
+      <div style="margin-bottom:6px;"><b style="color:var(--warn);">▸ Проблеми:</b></div>
+      <ul style="margin:0 0 8px 0; padding-left:16px;">
+        <li>Дані в пам'яті — при рестарті все губиться</li>
+        <li>Open-Elevation API повільний, нестабільний</li>
+        <li>Поллінг 10s, немає WebSocket</li>
+      </ul>
+      <div style="margin-top:8px; padding:6px; background:rgba(0,0,0,0.2); border-left:3px solid var(--ok); font-size:10px; color:var(--text-dim);">
+        <b>Покращення:</b> SRTM · SQLite · WebSocket · Open-Meteo
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button onclick="document.getElementById('splash-modal').style.display='none'" class="tool-btn" style="border-color:var(--ok); color:var(--ok); font-weight:bold;">ПОЧАТИ РОБОТУ</button>
+    </div>
+  </div>
+</div>
+
   <aside class="sidebar">
     <div class="title">EASYKROPYVA · TERMINAL v1.6.0</div>
     <div style="font-size: 10px; color: var(--text-dim); text-align: center; margin-bottom: 10px;">Build: 2026-06-17</div>
